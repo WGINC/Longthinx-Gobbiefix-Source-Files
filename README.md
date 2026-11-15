@@ -20,6 +20,16 @@ None of it is your code. gobbiefix changes the running game from outside, so eve
 around one of the client's functions. With the real source, most of these fixes become a few lines in the function
 itself.
 
+### How to reach us
+
+If you work at SQUARE ENIX and would like to get in touch, whether about using any of this or to receive the full
+version with every address and offset, please use this repository's private reporting. Open the **Security** tab and
+choose **Report a vulnerability** ([direct link](https://github.com/WGINC/Longthinx-Gobbiefix-Source-Files/security/advisories/new)). Only the repository's maintainers can read what you send.
+Despite the form's name, you don't need to be reporting a vulnerability: put "Contact" in the title and write freely.
+
+For the full version, please include a SQUARE ENIX company email address in your message. We'll write to it to
+confirm it's you, then give your GitHub account read-only access to the private repository.
+
 ## How to read this
 
 - **Addresses** are in the FFXiMain.dll build our analysis calls `6A995428`, at its preferred base `0x10000000`. Unless
