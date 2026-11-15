@@ -38,8 +38,8 @@ confirm it's you, then give your GitHub account read-only access to the private 
   otherwise, every address, offset and constant was read from that build's code.
 - **The latest build** is November's, PE timestamp `6AE818B4` (2 November 2026). gobbiefix runs on it through a
   translation from the analysed build: 4,746 of the 4,826 functions the kit lists are proven the same there, and every
-  address speedfix uses is settled and lies outside the functions that changed. We have no hash of that build on
-  record.
+  address speedfix uses is settled and lies outside the functions that changed. The installed file of that build
+  (packed, as it's on disk) has sha256 `d809ebe333019395ad43ab7ec1d94d9f58fe1f62c2ae730334f730fa8e7d48fb`.
 - **Function names** like `Shadow_DrawByMode` or `CXiActor::NameCalc` are names we made up. Your names will differ. The
   addresses identify the functions.
 - **The hook pattern.** In the code, `prev_x` is the game's original function, which our hook calls. `orig::X(...)`
