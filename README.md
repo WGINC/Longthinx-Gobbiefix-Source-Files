@@ -32,8 +32,14 @@ confirm it's you, then give your GitHub account read-only access to the private 
 
 ## How to read this
 
-- **Addresses** are in the FFXiMain.dll build our analysis calls `6A995428`, at its preferred base `0x10000000`. Unless
-  a section says otherwise, every address, offset and constant was read from that build's code.
+- **The build this is based on.** Everything here is based on the FFXiMain.dll build with PE timestamp `6A995428`
+  (3 September 2026), unpacked: sha256 `1b9b59aedc18a5b7dcbd531fff598c3b43a359eeb5dc2798763bc0ff8a21a3ad`, 6,208,512 bytes. Addresses assume its preferred base `0x10000000`.
+  The hash is of the unpacked DLL, so it won't match the packed file as it's installed. Unless a section says
+  otherwise, every address, offset and constant was read from that build's code.
+- **The latest build** is November's, PE timestamp `6AE818B4` (2 November 2026). gobbiefix runs on it through a
+  translation from the analysed build: 4,746 of the 4,826 functions the kit lists are proven the same there, and every
+  address speedfix uses is settled and lies outside the functions that changed. We have no hash of that build on
+  record.
 - **Function names** like `Shadow_DrawByMode` or `CXiActor::NameCalc` are names we made up. Your names will differ. The
   addresses identify the functions.
 - **The hook pattern.** In the code, `prev_x` is the game's original function, which our hook calls. `orig::X(...)`
