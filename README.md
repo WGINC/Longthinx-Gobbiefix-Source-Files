@@ -27,7 +27,7 @@ version with every address and offset, please use this repository's private repo
 choose **Report a vulnerability** ([direct link](https://github.com/WGINC/Longthinx-Gobbiefix-Source-Files/security/advisories/new)). Only the repository's maintainers can read what you send.
 Despite the form's name, you don't need to be reporting a vulnerability: put "Contact" in the title and write freely.
 
-For the full version, please include a SQUARE ENIX company email address in your message. We'll write to it to
+For the full version, please include a SQUARE ENIX company email address in your message. I'll write to it to
 confirm it's you, then give your GitHub account read-only access to the private repository.
 
 ## How to read this
