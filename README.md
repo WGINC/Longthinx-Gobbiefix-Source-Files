@@ -74,7 +74,7 @@ confirm it's you, then give your GitHub account read-only access to the private 
 | 13 | Game time and frame rate | Slow below 60 fps, fast above | `Frame_Render`, `Camera_GetFrameScale` | `frame_step` (speedfix.ini, 3) | Measured: game time follows real time from 31 to 184 fps |
 | 14 | Even frame cap | — | At Present | `frame_cap` (0, off) | No difference seen on screen at 120 against no cap |
 | 15 | SSE on every CPU | x87 paths on CPUs whose vendor string doesn't match | The CPU detection, `CreateProcessorInstance` | `cpu_tier`, `sse_skinning` (speedfix.ini, on) | Seen in the logs: SSE tier with it on, x87 with it off |
-| 16 | Occlusion readbacks | The CPU waits for the GPU | The occlusion readback | `occlusion_late` (speedfix.ini, on) | In use; pop-in, its known side effect, seen; its cost not measured in the game |
+| 16 | Occlusion readbacks | The CPU waits for the GPU | The occlusion readback | `occlusion_late`, `occlusion_hold`, `occlusion_stagger`, `occlusion_nowait`, `occlusion_first` (speedfix.ini, on) | In use; pop-in, its known side effect, seen; with the buffer arena, frame 16.9 ms → 14.5 ms |
 | 17 | The renderer | — | d3d8on11 | `renderer` (d3d12) | Measured: texture tables 0.72–0.88 µs → 0.34–0.36 µs per draw |
 | 18 | State caches | The same state set again and again | Device calls | `state_cache`, `extended_state_cache` (speedfix.ini, on) | Measured: 51–61% of calls skipped |
 | 19 | Held state changes | Changes undone before any draw reads them | Device calls | `lazy_state` (speedfix.ini, on) | Measured with 22: frame 39.02 ms → 30.86 ms |
@@ -89,6 +89,11 @@ confirm it's you, then give your GitHub account read-only access to the private 
 | 28 | One scene per frame | Several scenes a frame | Device calls | `merge_scenes` (speedfix.ini, off) | No measurable gain |
 | 29 | Step from the counter | — | `Frame_Render` | `step_exact` (speedfix.ini, off) | No effect measured |
 | 30 | Liminality | — | The task pass | `liminality` (speedfix.ini, off) | Latest version not run in the game |
+| 31 | Sending only what changed | A 3,200-byte record for every draw | d3d8on11 | `draw_delta` (d3d8on11.ini, on) | Run; not measured |
+| 32 | Merging consecutive draws | One draw call per draw | d3d8on11 | `draw_merge` (d3d8on11.ini, on) | Run; not measured |
+| 33 | Mip levels, anisotropic filtering | Speckle and shimmer in the distance | Texture creation and world draws | `mipmaps` (on), `anisotropy` (16) | Measured: build times; speckle even in replays |
+| 34 | Swap-chain buffers | — | d3d8on11 | `swap_buffers` (2) | Measured: 2 best; 4 never measured |
+| 35 | Loading and build check | — | d3d8on11, xikit | `load_kit`, `update_notice` (d3d8on11.ini, on) | In use in every start |
 
 - **Setting:** the name in `gobbiefix.ini`, or in `speedfix.ini` where marked. Turning a setting off gives the game's
   own behaviour, so you can compare before and after in the game.
@@ -548,6 +553,14 @@ LONG prev = InterlockedCompareExchange(dw, want, expect);
   hidden on 3–4% of probes.
 - `occlusion_stagger` re-tests each actor every 8 frames instead of 4.
 
+- `occlusion_nowait` (on): the late read never waits for d3d8on11's thread. It takes the newest finished picture, or
+  the object's last answer again. With it and the renderer's buffer arena (section 17), the median frame in a busy
+  town scene was 14.5 ms standing and 12.5 ms running, against 16.9 ms and 19.0 ms without them.
+- `occlusion_first=2` (on): an object's first probe has no picture of its own yet, so the game's own readback would
+  wait for the GPU. It's answered "visible" without waiting instead. In one A/B the game's readback ran once in the
+  phases without it, taking 208.6 ms, and never in the phases with it: it removes that freeze, but it doesn't change
+  the frame rate.
+
 These rules were chosen by us, not taken from the game.
 
 ### 17. The renderer: Direct3D 8 on Direct3D 12 and 11 (d3d8on11)
@@ -602,14 +615,21 @@ after its copy, so it still waits. `occlusion_late` (section 16) locks a frame l
 - the executor's filter skips Direct3D 11 calls that would set what it last set;
 - its batches map each constant and vertex arena once per batch instead of once per draw.
 
-The buffer arena (off by default) puts the game's dynamic buffers in two large buffers. Measured in our tester's game:
-the upload time fell from 2.4–2.7 ms a frame to 0.05–0.07 ms, and the draws cost about 1 ms more, for a net gain of
-about 1.4 ms a frame.
+The buffer arena puts the game's dynamic buffers in two large buffers. Measured in our tester's game: the upload time
+fell from 2.4–2.7 ms a frame to 0.05–0.07 ms, and the draws cost about 1 ms more, for a net gain of about 1.4 ms a
+frame. All three are on in the shipped settings, but only the Direct3D 11 executor uses them, so with the default
+Direct3D 12 renderer they do nothing.
+
+**Also always on.** Compiled shaders and the driver's pipeline library are cached on disk next to the executor, so a
+later start doesn't compile them again. Fatal exceptions (access violations, illegal instructions, stack overflows
+and the like) are written to the log with the module, offset, thread and registers.
 
 **GPU skinning** is described in section 23.
 
 **Measured.** On Direct3D 12, building each draw's texture table only from the views the pixel shader reads cut that
-step from 0.72–0.88 µs to 0.34–0.36 µs per draw. In a busy scene the executor spends about 7.7 µs per draw at
+step from 0.72–0.88 µs to 0.34–0.36 µs per draw. In crowd scenes of 1,600–2,000 draws a frame, the executor took
+11–13 ms a frame on Direct3D 12 against 17.5–19.7 ms on Direct3D 11. That run's picture had a texture-sampling fault,
+which a check at start-up now guards against. In a busy scene the executor spends about 7.7 µs per draw at
 1,500–1,700 draws a frame. The number of draws is what limits it, which is why sections 18–23 and 27 matter.
 
 **Not established:** the executor as a native ARM64 process crashed inside a third-party overlay's DLL in one of our
@@ -626,7 +646,9 @@ often to the value already set.
 
 **Fix.** Keep a shadow of what the device holds and drop a call that sets the same value. `extended_state_cache` does
 the same for transforms, the viewport, lights, stream sources and indices. Calls from any other thread than the
-render thread are never cached, and they make the whole shadow unknown.
+render thread are never cached, and they make the whole shadow unknown. `vertex_shader_cache` does the same for
+`SetVertexShader`, and `state_cache_reset_each_scene` forgets the shadow at each `BeginScene` and `EndScene`, in case
+an overlay calls the device below gobbiefix.
 
 ```cpp
 bool use = sf_cfg.state_cache && !g_recording && (unsigned)st < 256;
@@ -792,14 +814,86 @@ offline tests. Off by default.
 
 ---
 
+## The renderer's other improvements, and how gobbiefix starts
+
+### 31. Sending only what changed (`draw_delta`)
+
+**What it costs.** A draw record is 3,200 bytes, built from the device's whole state at every draw: 2.2–2.4 µs of the
+game's thread each, in our tester's game.
+
+**Fix.** A counter goes up at every device call that can change the first 3,024 bytes (28 methods that write state,
+the state blocks, the targets, the vertex shader table). The stream sources and the index buffer are in the last 176
+bytes. A buffer draw made with the counter as it was at the last full record sends only those 176 bytes, and the
+executor puts them after the last record's head.
+
+**In the game:** run, not yet measured. The tests check that every scene is the same with and without it.
+
+### 32. Merging consecutive draws (`draw_merge`)
+
+**Fix.** Consecutive indexed triangle-list draws whose records are equal apart from their vertex and index buffers
+(the same shaders, constants, states, viewport, textures and samplers) are drawn as one. On Direct3D 12, each draw's
+vertex buffers are copied by the GPU, once per version, into one of four 16 MB slot buffers, and its indices are
+rewritten as 32-bit numbers. The same triangles are drawn in the same order with the same state, so the picture is the
+same.
+
+**In the game:** run, not yet measured. In crowd frames about 1,040 of 1,650 draws a frame were candidates.
+
+### 33. Mip levels and anisotropic filtering (`mipmaps`, `anisotropy`)
+
+**What the game does.** Every texture it draws has one level: 148 of 148 in our tester's frame captures, and no draw
+uses a mip filter. Distant ground and text therefore skip texels, which shows as speckle and shimmer.
+
+**Fix.** A managed one-level 2D texture is created with a full chain of levels, made from level 0 each time the game
+writes it.
+- The levels are a 2×2 box average. Block formats are decoded, averaged and encoded again.
+- For a cutout texture (every alpha 0 or full), each level's alpha is scaled so the share at or above 128 stays level
+  0's. 128 is our choice, because the draws' alpha reference isn't known when the levels are made.
+- The game still sees one level. A texture rebuilt more than twice its size within 60 frames gets no levels from then
+  on.
+- Only draws of 3D vertices use the levels, with linear minification and mip filtering. The interface keeps the
+  game's own sampling.
+- `anisotropy=16` makes those draws anisotropic where the game magnifies linearly.
+
+The builds run off the game's thread, on the executor or a worker thread, so until a build is ready the texture is
+drawn with level 0 only, for a frame or a few after loading.
+
+**Measured.** On our build machine, a build takes about 1.3–1.7 ms for a 256×256 DXT texture and about 10 ms for the
+2048×4096 font atlas. In our tester's game, about 475 builds ran in the first 600 frames (the loading), then 0–300 per
+600 frames. In replays of our tester's
+captures, the far ground's speckle becomes even. The distant names change little, because their glyphs are drawn near
+their own size.
+
+*In your source:* create the game's textures with a mip chain and set a mip filter on world draws.
+
+### 34. Swap-chain buffers (`swap_buffers`)
+
+With Direct3D 12's flip-model swap chain and 2 buffers, one buffer is on the screen until the compositor's next
+refresh and the other is being drawn, so `Present` waits for that refresh. In one measurement at 120 Hz, `Present` was
+3.6–4.5 ms of the executor's 7.2–7.8 ms a frame. 3 or 4 buffers let a finished frame wait in the queue instead. In our
+tester's measurements 2 did best (fewer frames thrown away, less judder) and 3 made more frames but threw more away.
+4 is allowed but has never been measured. The shipped value is 2.
+
+### 35. How gobbiefix starts, and checks the game's build (`load_kit`, `update_notice`)
+
+1. At the game's first `Direct3DCreate8`, `d3d8.dll` reads FFXiMain.dll's PE timestamp in memory and looks it up in
+   the kit's manifests.
+2. If the build is known, it loads `xikit.dll`, the hooking kit. The kit waits for the device, then loads speedfix.
+3. Each manifest lists every function the kit may hook, with a fingerprint of its first bytes. The kit checks the
+   fingerprint before it hooks, and refuses a function that doesn't match.
+4. For a build after the analysed one, the manifest carries the address ranges that moved. The kit translates every
+   address at the boundary.
+5. If the build isn't known, the kit isn't loaded and the renderer runs on its own. With `update_notice=1`, a window
+   says gobbiefix needs an update and where to get it.
+
+So a game update never runs gobbiefix's hooks against code they weren't checked against.
+
+---
+
 ## Not covered in this document
 
-These settings aren't described, because they're tools for testing or display options rather than fixes:
-
-- Measurement only: `motion_stats`, `task_draws`, `null_draws`, `ab_levers`, `stats_every`.
-- d3d8on11's display settings: `swap_buffers`, `mipmaps`, `anisotropy`.
-- Finer options of the fixes above, such as `occlusion_nowait`, `occlusion_first`, `pace_pct`, and the Direct3D 11
-  executor's `exec_filter`, `exec_batch` and `buffer_arena`.
+Only settings that aren't in use by default are left out: the measuring tools (`motion_stats`, `task_draws`,
+`null_draws`, `ab_levers`, `stats_every`, `log_stats`, `draw_sites`, and xikit's measuring modes) and options that are
+off (`swap_flip`, `discard_hints`, `skip_actor_occlusion`, `skip_all_occlusion_readbacks`).
 
 ## Credits
 
