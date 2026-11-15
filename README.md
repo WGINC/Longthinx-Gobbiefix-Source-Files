@@ -49,6 +49,35 @@ confirm it's you, then give your GitHub account read-only access to the private 
 - **What's known and what isn't.** Each section says where a number came from. Where we don't know something (often
   what the PS2 did exactly), the section says so.
 
+## The fixes at a glance
+
+| # | Fix | On the PC, without it | Where it belongs | Setting (default) | In the game |
+|---|---|---|---|---|---|
+| 1 | Ground decals | Circles stretched; their size follows the field of view | `BeginEffectOffscreenPass` | `decal_fix` (on) | Confirmed by our tester |
+| 2 | Round shadows | Every character's shadow the same size | `Shadow_DrawByMode` | `fitted_shadows` (on) | Seen working; the size scale isn't measured |
+| 3 | Name sizes | Names pulse in size as you move | `CXiActor::NameCalc` | `smooth_names` (on) | Seen working |
+| 4 | Lamp glows | Glows flicker behind their lamp | The glow's draw call sites | `flare_fix` (on) | Confirmed by our tester |
+| 5 | Sphere-mapped metal | Dull next to the PS2 | `CYyModelDt::SkinAndDrawV2` | `sphere_shine` (on) | Not tested in the game |
+| 6 | Aura capture size | Jagged auras | `Post_CreateScreenEffectTargets`, `Post_CaptureSceneToTarget` | `aura_size` (1024) | Confirmed at 2048 |
+| 7 | Aura spread, soft last copy | Copies bunched on large screens; a hard edge | `Post_DrawRotatingGhostLayers` | `aura_soft` (on) | Used in the confirmed aura runs; not tested on its own |
+| 8 | Stronger auras (new) | — | `Post_DrawRotatingGhostLayers` | `aura_boost` (0, off) | Seen working |
+| 9 | Aura afterimages (new) | — | `Post_DrawRotatingGhostLayers` | `aura_trail` (0, off) and `aura_trail_*` | Seen working; the latest changes not yet run |
+| 10 | Disintegrate | The PS2's break-apart effect missing | — (portfix's method) | `disintegrate` (1) | Both versions confirmed by our tester |
+| 11 | Looping sounds | Rain and wind stop for good | `CYySoundElem::UpdateTimerAndPosition` | `sound_retry` (on) | Not confirmed: in the one run measured it never acted |
+| 12 | 60 fps limiter | 58.8 fps | `Frame_Render`'s limiter | `precise_pacing` (speedfix.ini, on) | Measured: active; frame-to-frame unevenness 15.2% → 11.1% |
+| 13 | Game time and frame rate | Slow below 60 fps, fast above | `Frame_Render`, `Camera_GetFrameScale` | `frame_step` (speedfix.ini, 3) | Measured: game time follows real time from 31 to 184 fps |
+| 14 | Even frame cap | — | At Present | `frame_cap` (0, off) | No difference seen on screen at 120 against no cap |
+| 15 | SSE on every CPU | x87 paths on CPUs whose vendor string doesn't match | The CPU detection, `CreateProcessorInstance` | `cpu_tier`, `sse_skinning` (speedfix.ini, on) | Seen in the logs: SSE tier with it on, x87 with it off |
+| 16 | Occlusion readbacks | The CPU waits for the GPU | The occlusion readback | `occlusion_late` (speedfix.ini, on) | In use; pop-in, its known side effect, seen; its cost not measured in the game |
+| 17 | Renderer texture tables | — | d3d8on11 | — | Measured: 0.72–0.88 µs → 0.34–0.36 µs per draw |
+
+- **Setting:** the name in `gobbiefix.ini`, or in `speedfix.ini` where marked. Turning a setting off gives the game's
+  own behaviour, so you can compare before and after in the game.
+- **In the game:** what has been seen or measured in a real game session. "Confirmed by our tester" means the person
+  testing gobbiefix saw the fix working. Measured figures come from gobbiefix's own logs in those sessions.
+- **Mode 3** of `frame_step`, the default, goes one step past modes 1 and 2 described in section 13: the five loops
+  that run once per whole tick (the camera's follow, the actors' position and turning) also take the fraction.
+
 ---
 
 ## Visual fixes
@@ -509,6 +538,23 @@ or 11. One measured gain: building each draw's texture table only from the views
 reads cut that step from 0.72–0.88 µs to 0.34–0.36 µs per draw. The renderer isn't included in this repository.
 
 ---
+
+## Not covered in this document
+
+gobbiefix has more settings than the fixes above. These ones aren't described here:
+
+- `skin_merge`: draws a model's runs of triangle-list records as one `DrawIndexedPrimitive`.
+- `gpu_skin`: skins characters in d3d8on11's vertex shader instead of on the CPU.
+- `lazy_state`, `block_cache`, `vs_dedupe`, `state_cache`, `extended_state_cache`: skip device calls that change
+  nothing, or are undone before the next draw.
+- `merge_scenes`: one `BeginScene`/`EndScene` pair a frame.
+- `batch_up_draws`: merges back-to-back `DrawPrimitiveUP` calls.
+- `uncap`: removes the game's minimum wait per frame (needed above 60 fps).
+- `smooth_pacing` (`pace_adaptive`) and `step_exact`: other ways of pacing frames and timing the game's step.
+- `liminality`: frames between the game's ticks drawn with positions and animations blended.
+- `texture_compression`: the threshold for compressing textures as they load.
+- d3d8on11's own settings: `swap_buffers`, `mipmaps`, `anisotropy`, `renderer`.
+- Measurement only: `motion_stats`, `task_draws`, `null_draws`, `ab_levers`.
 
 ## Credits
 

@@ -65,6 +65,36 @@ GPL-3.0-only の条件でのみご利用いただけます。LICENSE には日�
 - **判明していることと、判明していないこと。** 各項目では、数値の出所を明記しております。判明していない事柄
   （多くは PS2 版での正確な挙動）については、その旨を記しております。
 
+## 修正の一覧
+
+| # | 修正 | 修正がない場合の PC 版 | 修正を入れるべき箇所 | 設定（既定値） | ゲーム内での確認 |
+|---|---|---|---|---|---|
+| 1 | 地面のデカール | 魔法陣が引き伸ばされ、大きさが視野角に追従 | `BeginEffectOffscreenPass` | `decal_fix`（有効） | 検証担当者が確認済み |
+| 2 | 丸影 | 全キャラクターの影が同じ大きさ | `Shadow_DrawByMode` | `fitted_shadows`（有効） | 動作を確認。倍率は未測定 |
+| 3 | 名前の大きさ | 移動に伴い名前の大きさが脈打つ | `CXiActor::NameCalc` | `smooth_names`（有効） | 動作を確認 |
+| 4 | 街灯の光 | 光がランプの奥でちらつく | 光の描画の呼び出し元 | `flare_fix`（有効） | 検証担当者が確認済み |
+| 5 | 球面マップの金属 | PS2 版よりくすむ | `CYyModelDt::SkinAndDrawV2` | `sphere_shine`（有効） | ゲーム内では未検証 |
+| 6 | オーラのキャプチャサイズ | オーラがギザギザ | `Post_CreateScreenEffectTargets`、`Post_CaptureSceneToTarget` | `aura_size`（1024） | 2048 で確認済み |
+| 7 | オーラの広がりと最後の層 | 大画面で層が詰まり、縁が硬い | `Post_DrawRotatingGhostLayers` | `aura_soft`（有効） | 確認済みのオーラ検証で使用。単独では未検証 |
+| 8 | オーラの強化（新機能） | — | `Post_DrawRotatingGhostLayers` | `aura_boost`（0、無効） | 動作を確認 |
+| 9 | オーラの残像（新機能） | — | `Post_DrawRotatingGhostLayers` | `aura_trail`（0、無効）および `aura_trail_*` | 動作を確認。最新の変更は未実行 |
+| 10 | 崩壊エフェクト | PS2 版の分解表現がない | —（portfix の手法） | `disintegrate`（1） | 両版とも検証担当者が確認済み |
+| 11 | ループ音 | 雨や風の音が完全に止まる | `CYySoundElem::UpdateTimerAndPosition` | `sound_retry`（有効） | 未確認：測定した 1 回では一度も作動せず |
+| 12 | 60 fps のリミッター | 58.8 fps | `Frame_Render` のリミッター | `precise_pacing`（speedfix.ini、有効） | 測定済み：作動。フレーム間のばらつき 15.2% → 11.1% |
+| 13 | ゲーム内時間とフレームレート | 60 fps 未満で遅く、超過で速い | `Frame_Render`、`Camera_GetFrameScale` | `frame_step`（speedfix.ini、3） | 測定済み：31〜184 fps でゲーム内時間が実時間に追従 |
+| 14 | 均等なフレームレート上限 | — | Present の時点 | `frame_cap`（0、無効） | 120 と上限なしとで画面上の差は見られず |
+| 15 | すべての CPU で SSE | ベンダー文字列が一致しない CPU で x87 の経路 | CPU 判定、`CreateProcessorInstance` | `cpu_tier`、`sse_skinning`（speedfix.ini、有効） | ログで確認：有効時は SSE、無効時は x87 |
+| 16 | オクルージョンの読み戻し | CPU が GPU を待つ | オクルージョンの読み戻し | `occlusion_late`（speedfix.ini、有効） | 使用中。既知の副作用であるポップインを確認。負荷はゲーム内で未測定 |
+| 17 | 描画エンジンのテクスチャテーブル | — | d3d8on11 | — | 測定済み：1 描画あたり 0.72〜0.88 µs → 0.34〜0.36 µs |
+
+- **設定：** `gobbiefix.ini` における名称でございます（`speedfix.ini` と記したものを除きます）。設定を無効にすると
+  ゲーム本来の挙動となりますので、ゲーム内で修正の前後をお比べいただけます。
+- **ゲーム内での確認：** 実際のゲームのセッションで確認・測定された内容でございます。「検証担当者が確認済み」は、
+  gobbiefix の検証担当者が修正の動作を確認したことを意味いたします。測定値は、それらのセッションにおける gobbiefix
+  自身のログによるものでございます。
+- `frame_step` の既定値である**モード 3** は、第 13 項でご説明したモード 1・2 に加え、1 ティックごとに 1 回実行される
+  5 つのループ（カメラの追従、キャラクターの位置と向き）にも端数を与えるものでございます。
+
 ---
 
 ## 描画の修正
@@ -527,6 +557,23 @@ gobbiefix は独自の Direct3D 8 実装（`d3d8.dll`）を同梱しており、
 描画エンジン本体は本リポジトリには含まれておりません。
 
 ---
+
+## 本書で扱っていない設定
+
+gobbiefix には、上記の修正のほかにも設定がございます。以下は本書ではご説明しておりません。
+
+- `skin_merge`：モデルの三角形リストの連続部分を 1 回の `DrawIndexedPrimitive` で描画いたします。
+- `gpu_skin`：キャラクターのスキニングを CPU ではなく d3d8on11 の頂点シェーダーで行います。
+- `lazy_state`、`block_cache`、`vs_dedupe`、`state_cache`、`extended_state_cache`：何も変えない、または次の描画までに
+  元に戻されるデバイス呼び出しを省きます。
+- `merge_scenes`：`BeginScene`/`EndScene` を 1 フレームにつき 1 組といたします。
+- `batch_up_draws`：連続する `DrawPrimitiveUP` の呼び出しを統合いたします。
+- `uncap`：ゲームの 1 フレームあたりの最小待機を外します（60 fps を超える場合に必要です）。
+- `smooth_pacing`（`pace_adaptive`）と `step_exact`：フレーム間隔の調整とステップの計時の別方式でございます。
+- `liminality`：ゲームのティックの間のフレームを、位置とアニメーションを補間して描画いたします。
+- `texture_compression`：読み込み時のテクスチャ圧縮のしきい値でございます。
+- d3d8on11 自身の設定：`swap_buffers`、`mipmaps`、`anisotropy`、`renderer`。
+- 測定専用：`motion_stats`、`task_draws`、`null_draws`、`ab_levers`。
 
 ## クレジット
 
