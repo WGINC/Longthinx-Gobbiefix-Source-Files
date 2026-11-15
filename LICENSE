@@ -1,0 +1,54 @@
+Longthinx gobbiefix: notes on the fixes, with code -- licence
+
+Copyright 2026 Dellingr
+
+1. SQUARE ENIX. Permission is hereby granted, free of charge, to SQUARE ENIX CO., LTD., SQUARE ENIX
+   HOLDINGS CO., LTD., any company that controls, is controlled by or is under common control with
+   either of them, and any contractor acting on their behalf for their products (together,
+   "Square Enix"), to deal in this software and its documentation (the "Software") without
+   restriction, including without limitation the rights to use, copy, modify, merge, publish,
+   distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+   Software is furnished to do so. No attribution or notice is required.
+
+2. EVERYONE ELSE. Anyone other than Square Enix may use, copy, modify and distribute the Software
+   only under the terms of the GNU General Public License, version 3 only (GPL-3.0-only), as
+   published by the Free Software Foundation: https://www.gnu.org/licenses/gpl-3.0.html
+
+3. SCOPE. This licence covers Dellingr's own work only. It grants no rights in the work of others
+   credited in README.md and README.ja.md, nor in FINAL FANTASY XI or any other property of
+   Square Enix.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------------------------
+
+【参考訳】本ライセンスの日本語訳（参考）
+
+以下は参考のための日本語訳です。英語の原文と日本語訳との間に相違がある場合は、英語の原文が優先します。
+
+著作権 2026 Dellingr
+
+1. スクウェア・エニックス。株式会社スクウェア・エニックス、株式会社スクウェア・エニックス・ホールディングス、
+   これらのいずれかを支配し、これらのいずれかに支配され、またはこれらのいずれかと共通の支配下にある会社、および
+   これらの製品のためにこれらに代わって業務を行う委託先（以下、総称して「スクウェア・エニックス」）に対し、
+   本ソフトウェアおよびその文書（以下「本ソフトウェア」）を無償で、制限なく取り扱うことを許諾します。これには、
+   本ソフトウェアの使用、複製、改変、結合、公開、頒布、再許諾および販売の権利、ならびに本ソフトウェアの提供を
+   受けた者に同様のことを許可する権利が、これらに限定されることなく含まれます。著作者の表示および本許諾の表示は
+   必要ありません。
+
+2. その他の者。スクウェア・エニックス以外の者は、Free Software Foundation が公表する GNU 一般公衆利用許諾書
+   第 3 版のみ（GPL-3.0-only）の条件に従う場合に限り、本ソフトウェアを使用、複製、改変および頒布することが
+   できます：https://www.gnu.org/licenses/gpl-3.0.html
+
+3. 範囲。本ライセンスの対象は Dellingr 自身の成果物に限られます。README.md および README.ja.md にクレジットを
+   記載した他者の成果物、ならびに FINAL FANTASY XI その他のスクウェア・エニックスの財産について、いかなる権利も
+   許諾するものではありません。
+
+本ソフトウェアは「現状のまま」で提供され、明示であるか黙示であるかを問わず、商品性、特定目的への適合性および
+権利非侵害についての保証を含め、いかなる保証もありません。著作者または著作権者は、契約行為、不法行為その他を
+問わず、本ソフトウェアに起因または関連し、あるいは本ソフトウェアの使用その他の取扱いによって生じる一切の請求、
+損害その他の義務について、何らの責任も負わないものとします。
