@@ -81,7 +81,7 @@ confirm it's you, then give your GitHub account read-only access to the private 
 | 20 | State-block cache | — | Device calls | `block_cache` (speedfix.ini, on) | No measurable gain |
 | 21 | One shader per declaration | About 1,450 creations for 3 shaders | Device calls | `vs_dedupe` (speedfix.ini, on) | Seen in the logs: 3 shaders made a session |
 | 22 | Merged `DrawPrimitiveUP` | Text and interface drawn one quad at a time | Device calls | `batch_up_draws` (speedfix.ini, on) | Measured: 86–90% fewer calls |
-| 23 | GPU skinning | Characters skinned on the CPU | `Model_SkinVerticesCpu` | `gpu_skin` (speedfix.ini and d3d8on11.ini, on) | Run once: it hid characters; fixed, not run again |
+| 23 | GPU skinning | Characters skinned on the CPU | `Model_SkinVerticesCpu` | `gpu_skin` (speedfix.ini and d3d8on11.ini, on) | On in our tester's sessions since the fix; no problems seen; not measured |
 | 24 | Texture compression at load | DXT encoding on the CPU at load | Texture loading | `texture_compression` (speedfix.ini, on) | Not measured |
 | 25 | Above 60 fps | Held at 60 fps | `Frame_Render`'s limiter | `uncap` (speedfix.ini, on) | Measured: game time follows real time from 31 to 184 fps |
 | 26 | Adaptive pacing | — | At Present | `smooth_pacing` (on) | Measured: aim within 0.2–0.6 ms of each frame |
@@ -720,8 +720,8 @@ float4 p = float4(mul(v.ska, bones[v.ski.x]).xyz + mul(v.skb, bones[v.ski.y]).xy
 Where the device declines a model, the game skins it as before.
 
 **In the game:** it has run once. In that run it hid every character but the player's, because d3d8on11 dropped the
-game's occlusion rectangles while a skinned buffer was bound. That was fixed and tested offline, but hasn't been run
-in the game again. It's on by default in the current release.
+game's occlusion rectangles while a skinned buffer was bound. That was fixed and tested offline. It has been on by
+default since, and our tester has seen no problems with it. How much it saves hasn't been measured.
 
 ### 24. Fewer textures compressed at load (`texture_compression`)
 
