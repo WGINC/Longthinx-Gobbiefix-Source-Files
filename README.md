@@ -75,7 +75,20 @@ confirm it's you, then give your GitHub account read-only access to the private 
 | 14 | Even frame cap | — | At Present | `frame_cap` (0, off) | No difference seen on screen at 120 against no cap |
 | 15 | SSE on every CPU | x87 paths on CPUs whose vendor string doesn't match | The CPU detection, `CreateProcessorInstance` | `cpu_tier`, `sse_skinning` (speedfix.ini, on) | Seen in the logs: SSE tier with it on, x87 with it off |
 | 16 | Occlusion readbacks | The CPU waits for the GPU | The occlusion readback | `occlusion_late` (speedfix.ini, on) | In use; pop-in, its known side effect, seen; its cost not measured in the game |
-| 17 | Renderer texture tables | — | d3d8on11 | — | Measured: 0.72–0.88 µs → 0.34–0.36 µs per draw |
+| 17 | The renderer | — | d3d8on11 | `renderer` (d3d12) | Measured: texture tables 0.72–0.88 µs → 0.34–0.36 µs per draw |
+| 18 | State caches | The same state set again and again | Device calls | `state_cache`, `extended_state_cache` (speedfix.ini, on) | Measured: 51–61% of calls skipped |
+| 19 | Held state changes | Changes undone before any draw reads them | Device calls | `lazy_state` (speedfix.ini, on) | Measured with 22: frame 39.02 ms → 30.86 ms |
+| 20 | State-block cache | — | Device calls | `block_cache` (speedfix.ini, on) | No measurable gain |
+| 21 | One shader per declaration | About 1,450 creations for 3 shaders | Device calls | `vs_dedupe` (speedfix.ini, on) | Seen in the logs: 3 shaders made a session |
+| 22 | Merged `DrawPrimitiveUP` | Text and interface drawn one quad at a time | Device calls | `batch_up_draws` (speedfix.ini, on) | Measured: 86–90% fewer calls |
+| 23 | GPU skinning | Characters skinned on the CPU | `Model_SkinVerticesCpu` | `gpu_skin` (speedfix.ini and d3d8on11.ini, on) | Run once: it hid characters; fixed, not run again |
+| 24 | Texture compression at load | DXT encoding on the CPU at load | Texture loading | `texture_compression` (speedfix.ini, on) | Not measured |
+| 25 | Above 60 fps | Held at 60 fps | `Frame_Render`'s limiter | `uncap` (speedfix.ini, on) | Measured: game time follows real time from 31 to 184 fps |
+| 26 | Adaptive pacing | — | At Present | `smooth_pacing` (on) | Measured: aim within 0.2–0.6 ms of each frame |
+| 27 | Merged character draws | One draw per record | `CYyModelDt::SkinAndDrawV2` | `skin_merge` (speedfix.ini, off) | No measurable gain |
+| 28 | One scene per frame | Several scenes a frame | Device calls | `merge_scenes` (speedfix.ini, off) | No measurable gain |
+| 29 | Step from the counter | — | `Frame_Render` | `step_exact` (speedfix.ini, off) | No effect measured |
+| 30 | Liminality | — | The task pass | `liminality` (speedfix.ini, off) | Latest version not run in the game |
 
 - **Setting:** the name in `gobbiefix.ini`, or in `speedfix.ini` where marked. Turning a setting off gives the game's
   own behaviour, so you can compare before and after in the game.
@@ -539,28 +552,254 @@ These rules were chosen by us, not taken from the game.
 
 ### 17. The renderer: Direct3D 8 on Direct3D 12 and 11 (d3d8on11)
 
-gobbiefix ships its own Direct3D 8 implementation (`d3d8.dll`), which runs the game's Direct3D 8 calls on Direct3D 12
-or 11. One measured gain: building each draw's texture table only from the views the generated pixel shader actually
-reads cut that step from 0.72–0.88 µs to 0.34–0.36 µs per draw. The renderer isn't included in this repository.
+gobbiefix ships its own Direct3D 8 implementation, `d3d8.dll`, which runs the game's Direct3D 8 calls on Direct3D 12
+(the default) or Direct3D 11. It's entirely gobbiefix's own code: it doesn't patch or read the game, and the game
+sees an ordinary Direct3D 8 device.
+
+**Two halves joined by a command stream.**
+- The **D3D8 side**, which the game calls, keeps the state the game sets and reads back, the state blocks, and a CPU
+  copy of every texture and buffer that the game writes through `Lock`. `Unlock` sends only what changed.
+- At each draw it decides everything Direct3D 8's fixed-function pipeline would do (the shader keys, the constants,
+  the blend, depth and rasterizer states) and writes one draw record with the ids of the buffers and textures it reads.
+- The records go through a 32 MB ring to the **executor**, the only code that uses Direct3D 12 or 11. By default it
+  runs on its own thread. The game waits only for the four records that need an answer (start, resize, readback,
+  finish), for room in the ring, or when it's two Presents ahead.
+- A third mode runs the executor as a separate process, built natively for ARM64 on Windows on ARM machines. It
+  presents into the game's window.
+
+**The fixed-function pipeline as generated shaders.** Each combination of texture-stage operations, lighting, fog and
+vertex format becomes HLSL once, is compiled and cached. The texture stages translate directly:
+
+```cpp
+switch (o) {
+case D3DTOP_SELECTARG1: return A;
+case D3DTOP_SELECTARG2: return B;
+case D3DTOP_MODULATE: return A + " * " + B;
+case D3DTOP_MODULATE2X: return "saturate(" + A + " * " + B + " * 2)";
+case D3DTOP_MODULATE4X: return "saturate(" + A + " * " + B + " * 4)";
+case D3DTOP_ADD: return "saturate(" + A + " + " + B + ")";
+case D3DTOP_ADDSIGNED: return "saturate(" + A + " + " + B + " - 0.5)";
+case D3DTOP_BLENDDIFFUSEALPHA: return "lerp(" + B + ", " + A + ", i.d0.a)";
+...
+```
+
+**The Direct3D 12 executor.** The same command stream, run on Direct3D 12:
+- one 64 MB upload ring, mapped once, each region reused only after the GPU has passed the submission that read it;
+- one pipeline state object per combination of shaders and states, made once and cached;
+- a flip-model swap chain;
+- each draw's texture table built only from the views its generated pixel shader reads.
+
+Why Direct3D 12: on our tester's Mac, 2,000 small draws took 6.1 ms through Direct3D 11's immediate context and
+2.0 ms through Direct3D 12. If a Direct3D 12 device can't be made, the start runs on Direct3D 11.
+
+**Readbacks without the wait.** A small lockable render target that's only written by `CopyRects` (the game's 16×16
+occlusion target) gets a snapshot after each copy. `LockRect` reads the snapshot when it's of the surface as it is
+now, instead of waiting for the GPU. This is exact because the only Direct3D 8 methods that write such a surface are
+`CopyRects`, being the bound render target, and an unlock after a writing lock. The game's own readback locks right
+after its copy, so it still waits. `occlusion_late` (section 16) locks a frame later and is answered from the snapshot.
+
+**Fewer calls into Direct3D 11.** Two features exist for the Direct3D 11 executor only:
+- the executor's filter skips Direct3D 11 calls that would set what it last set;
+- its batches map each constant and vertex arena once per batch instead of once per draw.
+
+The buffer arena (off by default) puts the game's dynamic buffers in two large buffers. Measured in our tester's game:
+the upload time fell from 2.4–2.7 ms a frame to 0.05–0.07 ms, and the draws cost about 1 ms more, for a net gain of
+about 1.4 ms a frame.
+
+**GPU skinning** is described in section 23.
+
+**Measured.** On Direct3D 12, building each draw's texture table only from the views the pixel shader reads cut that
+step from 0.72–0.88 µs to 0.34–0.36 µs per draw. In a busy scene the executor spends about 7.7 µs per draw at
+1,500–1,700 draws a frame. The number of draws is what limits it, which is why sections 18–23 and 27 matter.
+
+**Not established:** the executor as a native ARM64 process crashed inside a third-party overlay's DLL in one of our
+tester's sessions, and the cause isn't known.
+
+---
+
+## More performance and timing work
+
+### 18. Skipping device calls that change nothing (`state_cache`, `extended_state_cache`)
+
+**What the game does.** It sets the same render state, texture-stage state, texture and vertex shader again and again,
+often to the value already set.
+
+**Fix.** Keep a shadow of what the device holds and drop a call that sets the same value. `extended_state_cache` does
+the same for transforms, the viewport, lights, stream sources and indices. Calls from any other thread than the
+render thread are never cached, and they make the whole shadow unknown.
+
+```cpp
+bool use = sf_cfg.state_cache && !g_recording && (unsigned)st < 256;
+if (use && g_rsV[st] && g_rs[st] == v) { g_skip++; return D3D_OK; }   // the device already holds it
+if (!(g_upPrims && g_upRhw && tnl_only(st))) flush();               // a real change: pending batched draws go out first
+return fwd_rs(st, v);
+```
+
+**Measured:** the cached setters skipped 51–61% of calls. In one A/B, `extended_state_cache` was 2.53 ms a frame
+faster, which is within the run's spread of 4–5 ms, so it isn't established as a gain.
+
+### 19. Holding state changes until a draw reads them (`lazy_state`)
+
+**What the game does.** It often changes a state and changes it back before drawing. For example, its quad drawing
+(`Cell_DrawQuadBlended`) sets `ALPHABLENDENABLE` to 0 after each quad and to 1 before the next.
+
+**Fix.** Direct3D 8 reads that state when it draws, not when it's set. So `SetRenderState`, `SetTextureStageState`
+and `SetTexture` are held until something reads the state (a draw, `Clear`, a `Get`, a state block, the scene's end,
+`Present`). A change undone before then never reaches the device.
+
+```cpp
+if ((unsigned)st < 256 && lazy_on()) {
+  int k = (int)st;
+  if (g_rsV[st] && g_rs[st] == v) { if (g_isP[k]) unpend(k); else g_skip++; return D3D_OK; }   // undone, or already set
+  if (g_isP[k]) { g_pv[k] = v; g_dropped++; } else pend(k, v);                                 // held
+  return D3D_OK;
+}
+```
+
+**Measured:** about a third of held changes are never sent (for example 6,098,785 of 21,719,067 in a minute). Together
+with section 22, it cut the frame from 39.02 ms to 30.86 ms in a busy town scene (−20.9%).
+
+*In your source:* set the blend state once for a run of quads, not around each one.
+
+### 20. State blocks that keep the cache (`block_cache`)
+
+When the game applies a state block it recorded, the cache learns what the block sets instead of forgetting
+everything. The effects apply two or three blocks each. **Measured:** in one A/B it was 1.43 ms slower, within the
+run's spread, so it gives no measurable gain.
+
+### 21. One vertex shader per declaration (`vs_dedupe`)
+
+**What the game does.** It calls `CreateVertexShader` about 1,450 times a session for fixed-function declarations,
+which come down to 3 distinct shaders.
+
+**Fix.** A fixed-function vertex shader is completely defined by its declaration and usage (DirectX 8 SDK,
+`CreateVertexShader`). So a second creation of the same declaration returns the first one's handle, and the shader is
+deleted when the last of its creations is.
+
+```cpp
+for (int i = 0; i < g_nvsd; i++)
+  if (g_vsd[i].usage == usage && g_vsd[i].n == n && !memcmp(g_vsd[i].decl, decl, n * sizeof(DWORD))) {
+    g_vsd[i].refs++; *ph = g_vsd[i].h; LeaveCriticalSection(&g_vsdLock); g_vsdShared++; return D3D_OK;
+  }
+```
+
+*In your source:* create the three shaders once at start-up.
+
+### 22. Merging back-to-back `DrawPrimitiveUP` calls (`batch_up_draws`)
+
+**What the game does.** Text and interface quads are drawn one small `DrawPrimitiveUP` at a time, with no state change
+between them.
+
+**Fix.** Copy each call's vertices into one buffer and send them as one draw when the state changes or another kind of
+call comes. Strips and fans become lists, but only with solid fill and Gouraud shading, where the conversion is exact.
+
+```cpp
+if (g_upPrims && (stride != g_upStride || g_upBytes + outBytes > maxB || (DWORD)g_upPrims + prims > maxP)) flush();
+expand(t, prims, (const BYTE *)data, stride, g_up + g_upBytes);  // the caller's data is only valid during the call
+g_upBytes += outBytes; g_upPrims += (int)prims; g_upStride = stride;
+return D3D_OK;
+```
+
+**Measured:** 86–90% fewer `DrawPrimitiveUP` calls reach the device. See section 19 for the frame time.
+
+### 23. GPU skinning (`gpu_skin`)
+
+**What the game does.** `Model_SkinVerticesCpu` (0x1002F1D0) skins every character on the CPU, then locks two vertex
+buffers and writes the skinned positions and normals into them.
+
+**Fix.** Hand the job to d3d8on11, which skins in the vertex shader. The game's thread neither computes nor uploads
+those vertices. The layout is the game's own: one-bone vertices of 6 floats, two-bone vertices of 14, a bone word per
+vertex, and a 64-byte matrix per bone. The shader makes the same sums as the CPU routine:
+
+```hlsl
+cbuffer B : register(b1) { row_major float4x4 bones[256]; };
+...
+float4 p = float4(mul(v.ska, bones[v.ski.x]).xyz + mul(v.skb, bones[v.ski.y]).xyz, 1);
+```
+
+Where the device declines a model, the game skins it as before.
+
+**In the game:** it has run once. In that run it hid every character but the player's, because d3d8on11 dropped the
+game's occlusion rectangles while a skinned buffer was bound. That was fixed and tested offline, but hasn't been run
+in the game again. It's on by default in the current release.
+
+### 24. Fewer textures compressed at load (`texture_compression`)
+
+The game compresses a texture to DXT at load when its class is 0, or above the registry setting 0018
+(`g_cfgTextureCompression`). The encoding is D3DX's, on the CPU. gobbiefix sets the threshold to 15, so
+only classes 0 and 10 are compressed and the rest load uncompressed. That means less CPU work at load and no DXT
+artefacts on those textures, at the cost of more video memory. **Not measured** in the game.
+
+### 25. Above 60 fps (`uncap`)
+
+**What the game does.** `Frame_Render`'s limiter waits until the frame's time reaches a floor of whole 1/60 s ticks.
+The floor is 1 at 60 fps, and the game's own setter writes 2 or 4.
+
+**Fix.** gobbiefix's copy of `Frame_Render` reads that floor as 0, in the wait and in the step. The game's field
+itself isn't written.
+
+```cpp
+static inline int xi_floor(void *self_) { return xi_uncap != 0 ? 0 : LIMITER_FLOOR(self_); }
+```
+
+Above 60 fps the game would then run faster than real time, so this needs `frame_step` (section 13). **Measured:**
+with `frame_step=3`, game time follows real time from 31 to 184 fps. Code that moves things a fixed amount each frame
+without reading the step still runs faster above 60 fps.
+
+### 26. Adaptive pacing (`smooth_pacing`)
+
+Instead of a fixed rate, each frame is held until the 90th percentile of the last 120 frames' own time has passed
+since the one before. The spacing stays even at a rate that follows the scene.
+
+```cpp
+double tgt = tmp[(g_paceN - 1) * sf_cfg.pace_pct / 100]; if (tgt > 50.0) tgt = 50.0;   // the percentile, at most 50 ms
+LONGLONG due = g_paceRel + (LONGLONG)(tgt * (double)g_qpf.QuadPart / 1000.0);
+if (due > now.QuadPart) { wait_until(due); QueryPerformanceCounter(&now); }
+```
+
+**Measured:** in one session, frames of 6.7–15.6 ms (148–64 fps), with the pacing's aim within 0.2–0.6 ms of each
+frame. On by default.
+
+### 27. Merging a character's draws (`skin_merge`, off)
+
+`CYyModelDt::SkinAndDrawV2` walks a model's command list and draws each triangle-list record with its own
+`DrawIndexedPrimitive`. Consecutive list records draw consecutive ranges of the same index buffer. gobbiefix's copy
+merges consecutive records with no state call between them into one draw. In a traced town frame that's at most about
+247 fewer draws out of 1,620 (15%). **Measured:** 1.36 ms slower in one A/B, within the spread. In one session
+vertices "exploded"; with it off they didn't appear, but that session also changed the CPU's math tier, so the cause
+isn't settled. Off by default.
+
+### 28. One scene per frame (`merge_scenes`, off)
+
+The game ends and begins scenes several times a frame. This holds an `EndScene` and drops it with the next
+`BeginScene`, so there's one pair per frame. **Measured:** 1.17 ms slower, within the spread. Off by default.
+
+### 29. The game's step from the performance counter (`step_exact`, off)
+
+With `frame_step`, the game moves things by this frame's own time instead of its average of the last 4 frames.
+**Measured:** no effect on movement or the camera. Off by default.
+
+### 30. Liminality: frames between the game's ticks (`liminality`, off)
+
+With `uncap`, the game's own logic still runs on whole 1/60 s ticks. On a frame with no tick, only the three drawing
+tasks run (the actors, the zone, the name plates), so the world is drawn again unchanged. Stage 2 draws characters'
+positions, facing and the camera, and with `lim_limbs` their animations, at the blend of their last two ticks. A move
+of 50 units or more in a tick (a warp) isn't blended.
+
+The facts it relies on come from the game's code: what OnMove clears and what the drawing path sets, so that a frame
+without OnMove draws what the last tick drew. **In the game:** its latest version hasn't been run. It passes its
+offline tests. Off by default.
 
 ---
 
 ## Not covered in this document
 
-gobbiefix has more settings than the fixes above. These ones aren't described here:
+These settings aren't described, because they're tools for testing or display options rather than fixes:
 
-- `skin_merge`: draws a model's runs of triangle-list records as one `DrawIndexedPrimitive`.
-- `gpu_skin`: skins characters in d3d8on11's vertex shader instead of on the CPU.
-- `lazy_state`, `block_cache`, `vs_dedupe`, `state_cache`, `extended_state_cache`: skip device calls that change
-  nothing, or are undone before the next draw.
-- `merge_scenes`: one `BeginScene`/`EndScene` pair a frame.
-- `batch_up_draws`: merges back-to-back `DrawPrimitiveUP` calls.
-- `uncap`: removes the game's minimum wait per frame (needed above 60 fps).
-- `smooth_pacing` (`pace_adaptive`) and `step_exact`: other ways of pacing frames and timing the game's step.
-- `liminality`: frames between the game's ticks drawn with positions and animations blended.
-- `texture_compression`: the threshold for compressing textures as they load.
-- d3d8on11's own settings: `swap_buffers`, `mipmaps`, `anisotropy`, `renderer`.
-- Measurement only: `motion_stats`, `task_draws`, `null_draws`, `ab_levers`.
+- Measurement only: `motion_stats`, `task_draws`, `null_draws`, `ab_levers`, `stats_every`.
+- d3d8on11's display settings: `swap_buffers`, `mipmaps`, `anisotropy`.
+- Finer options of the fixes above, such as `occlusion_nowait`, `occlusion_first`, `pace_pct`, and the Direct3D 11
+  executor's `exec_filter`, `exec_batch` and `buffer_arena`.
 
 ## Credits
 
