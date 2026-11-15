@@ -20,7 +20,7 @@ None of it is your code. gobbiefix changes the running game from outside, so eve
 around one of the client's functions. With the real source, most of these fixes become a few lines in the function
 itself.
 
-### How to reach us
+### How to reach me
 
 If you work at SQUARE ENIX and would like to get in touch, whether about using any of this or to receive the full
 version with every address and offset, please use this repository's private reporting. Open the **Security** tab and
