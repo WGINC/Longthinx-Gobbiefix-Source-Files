@@ -566,7 +566,8 @@ gobbiefix has more settings than the fixes above. These ones aren't described he
 
 - **Dellingr:** gobbiefix (the d3d8on11 renderer, the xikit kit, speedfix), speedfix_hook, and dagnyfix, whose
   flarefix, aura fix and decalfix led to `flare_fix`, `aura_size` and `decal_fix`.
-- **Geno:** co-credited by Dellingr's request.
+- **Geno:** help with gobbiefix's Linux side, coming soon. Geno had no part in the reverse engineering or the fixes
+  described here.
 - **voetre:** portfix (MIT licence). `disintegrate=1` is portfix's code. `sphere_shine` and `disintegrate=2` are built
   from portfix's measurements of the PS2.
 - **Krauerlabs:** SpectralFix, the source of `aura_soft`'s two changes and of enlarging the aura capture.

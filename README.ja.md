@@ -585,7 +585,7 @@ gobbiefix には、上記の修正のほかにも設定がございます。以�
 
 - **Dellingr**：gobbiefix（d3d8on11 描画エンジン、xikit キット、speedfix）、speedfix_hook、および dagnyfix（その
   flarefix・オーラ修正・decalfix が、`flare_fix`・`aura_size`・`decal_fix` の起点となりました）。
-- **Geno**：Dellingr の希望により、共にクレジットいたします。
+- **Geno**：近日公開予定の gobbiefix の Linux 対応へのご協力。本書に記載した解析および修正には関わっておりません。
 - **voetre 氏**：portfix（MIT ライセンス）。`disintegrate=1` は portfix のコードでございます。`sphere_shine` と
   `disintegrate=2` は、portfix による PS2 版の測定に基づいております。
 - **Krauerlabs 氏**：SpectralFix。`aura_soft` の 2 つの変更、およびオーラのキャプチャ拡大の着想の出所でございます。
