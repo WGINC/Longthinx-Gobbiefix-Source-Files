@@ -90,7 +90,7 @@ confirm it's you, then give your GitHub account read-only access to the private 
 | 29 | Step from the counter | — | `Frame_Render` | `step_exact` (speedfix.ini, off) | No effect measured |
 | 30 | Liminality | — | The task pass | `liminality` (speedfix.ini, off) | Latest version not run in the game |
 | 31 | Sending only what changed | A 3,200-byte record for every draw | d3d8on11 | `draw_delta` (d3d8on11.ini, on) | Run; not measured |
-| 32 | Merging consecutive draws | One draw call per draw | d3d8on11 | `draw_merge` (d3d8on11.ini, on) | Run; not measured |
+| 32 | Merging consecutive draws | One draw call per draw | d3d8on11 | `draw_merge` (d3d8on11.ini, on) | Run: about 7.8 draws a frame merged; frame time not measured |
 | 33 | Mip levels, anisotropic filtering | Speckle and shimmer in the distance | Texture creation and world draws | `mipmaps` (on), `anisotropy` (16) | Measured: build times; speckle even in replays |
 | 34 | Swap-chain buffers | — | d3d8on11 | `swap_buffers` (2) | Measured: 2 best; 4 never measured |
 | 35 | Loading and build check | — | d3d8on11, xikit | `load_kit`, `update_notice` (d3d8on11.ini, on) | In use in every start |
@@ -836,7 +836,9 @@ vertex buffers are copied by the GPU, once per version, into one of four 16 MB s
 rewritten as 32-bit numbers. The same triangles are drawn in the same order with the same state, so the picture is the
 same.
 
-**In the game:** run, not yet measured. In crowd frames about 1,040 of 1,650 draws a frame were candidates.
+**In the game:** in one run's log, about 7.8 draws a frame were merged, in crowd frames where about 1,040 of 1,650
+draws a frame were sent as delta draws (section 31). Why most of those runs aren't merged isn't established, and the
+effect on frame time hasn't been measured.
 
 ### 33. Mip levels and anisotropic filtering (`mipmaps`, `anisotropy`)
 
@@ -857,8 +859,9 @@ writes it.
 The builds run off the game's thread, on the executor or a worker thread, so until a build is ready the texture is
 drawn with level 0 only, for a frame or a few after loading.
 
-**Measured.** On our build machine, a build takes about 1.3–1.7 ms for a 256×256 DXT texture and about 10 ms for the
-2048×4096 font atlas. In our tester's game, about 475 builds ran in the first 600 frames (the loading), then 0–300 per
+**Measured.** On our build machine, a build takes about 1.3–1.7 ms for a 256×256 DXT texture and about 45 ms for the
+2048×4096 font atlas. A later change that stopped copying each level brought a 2048×4096 32-bit texture from 51 ms
+to 10 ms. In our tester's game, about 475 builds ran in the first 600 frames (the loading), then 0–300 per
 600 frames. In replays of our tester's
 captures, the far ground's speckle becomes even. The distant names change little, because their glyphs are drawn near
 their own size.
