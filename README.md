@@ -62,7 +62,7 @@ confirm it's you, then give your GitHub account read-only access to the private 
 | 1 | Ground decals | Circles stretched; their size follows the field of view | `BeginEffectOffscreenPass` | `decal_fix` (on) | Confirmed by our tester |
 | 2 | Round shadows | Every character's shadow the same size | `Shadow_DrawByMode` | `fitted_shadows` (on) | Seen working; the size scale isn't measured |
 | 3 | Name sizes | Names pulse in size as you move | `CXiActor::NameCalc` | `smooth_names` (on) | Seen working |
-| 4 | Lamp glows | Glows flicker behind their lamp | The glow's draw call sites | `flare_fix` (on) | Confirmed by our tester |
+| 4 | Lamp glows | Glows flicker behind their lamp | The glow's draw call sites | `flare_fix` (on) | v3.1 confirmed by our tester; the V0.7 change (v4.4) not yet run in the game |
 | 5 | Sphere-mapped metal | Dull next to the PS2 | `CYyModelDt::SkinAndDrawV2` | `sphere_shine` (on) | Not tested in the game |
 | 6 | Aura capture size | Jagged auras | `Post_CreateScreenEffectTargets`, `Post_CaptureSceneToTarget` | `aura_size` (1024) | Confirmed at 2048 |
 | 7 | Aura spread, soft last copy | Copies bunched on large screens; a hard edge | `Post_DrawRotatingGhostLayers` | `aura_soft` (on) | Used in the confirmed aura runs; not tested on its own |
@@ -229,14 +229,24 @@ static uint32_t __thiscall sf_namecalc(void *self, undefined4 *pos, int out, flo
 
 **Symptom.** Lamp and lantern glows flicker in and out behind the lamp's own surface.
 
-**Cause and fix.** This one comes from Dellingr's dagnyfix (flarefix v3.1), which found the glow draws by their
+**Cause and fix.** This one comes from Dellingr's dagnyfix (flarefix v3.1, then flare fix v4.4), which found the glow draws by their
 signature:
 - `DrawPrimitive` from a 36-byte-stride vertex buffer, at most 8 vertices;
 - depth test on, depth write off;
 - blending `SRCALPHA / ONE`.
 
-dagnyfix moves each vertex's local z by −0.4. gobbiefix makes the same move through WORLD for that one draw, with no
-lock and no copy: `WORLD' = T(0, 0, −0.4) × WORLD`.
+V0.7 moves the glow the way dagnyfix's flare fix v4.4 does (the earlier v3.1 move, `WORLD' = T(0, 0, −0.4) × WORLD`,
+went 0.4 along the glow's own z: wherever WORLD turns or scales that axis the glow left its place on the screen, which
+players saw as lights in the wrong place in zones after the base game's):
+- the anchor: the centroid of the draw's vertices (read through a read-only lock, cached by buffer, first vertex and
+  count, emptied on Reset), put through WORLD; `d` its distance from the origin;
+- nothing done when `d < 0.8` or not finite; else WORLD's rows 0–3, columns 0–2 times `s = (d − 0.4) / d`, for that
+  draw only.
+
+That scales the glow about the origin. The glows' VIEW is the identity (their WORLD already holds the camera), so the
+origin is the eye, and a scale about the eye keeps the glow's place and size on the screen while it comes 0.4 nearer.
+gobbiefix moves a glow only when VIEW is the identity. In a frame captured in the game (62 glows), the v3.1 move
+shifted every glow on the screen (median 21 px at 1512×949); this one shifts none.
 
 ```cpp
 static bool flare_match(D3DPRIMITIVETYPE t, UINT prims) {
@@ -245,6 +255,20 @@ static bool flare_match(D3DPRIMITIVETYPE t, UINT prims) {
   static const D3DRENDERSTATETYPE k[5] = {D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_SRCBLEND, D3DRS_DESTBLEND};
   static const DWORD want[5] = {D3DZB_TRUE, FALSE, TRUE, D3DBLEND_SRCALPHA, D3DBLEND_ONE};
   for (int i = 0; i < 5; i++) if (g_rs[k[i]] != want[i]) return false;   // (abridged: "state known" checks removed)
+  return true;
+}
+```
+
+```cpp
+// WORLD for the glow's draw (row-major, D3D's row vectors); c: the vertices' centroid
+static inline bool sf_flare_scale(const float w[16], const float c[3], float out[16]) {
+  float a[3];
+  for (int k = 0; k < 3; k++) a[k] = c[0] * w[k] + c[1] * w[4 + k] + c[2] * w[8 + k] + w[12 + k];
+  for (int k = 0; k < 3; k++) if (!isfinite(c[k]) || !isfinite(a[k])) return false;
+  float d = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+  if (!isfinite(d) || d < 0.8f) return false;
+  float s = (d - 0.4f) / d;
+  for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) out[4 * r + k] = k < 3 ? w[4 * r + k] * s : w[4 * r + k];
   return true;
 }
 ```

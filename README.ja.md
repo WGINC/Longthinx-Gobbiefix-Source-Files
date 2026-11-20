@@ -78,7 +78,7 @@ GPL-3.0-only の条件でのみご利用いただけます。LICENSE には日�
 | 1 | 地面のデカール | 魔法陣が引き伸ばされ、大きさが視野角に追従 | `BeginEffectOffscreenPass` | `decal_fix`（有効） | 検証担当者が確認済み |
 | 2 | 丸影 | 全キャラクターの影が同じ大きさ | `Shadow_DrawByMode` | `fitted_shadows`（有効） | 動作を確認。倍率は未測定 |
 | 3 | 名前の大きさ | 移動に伴い名前の大きさが脈打つ | `CXiActor::NameCalc` | `smooth_names`（有効） | 動作を確認 |
-| 4 | 街灯の光 | 光がランプの奥でちらつく | 光の描画の呼び出し元 | `flare_fix`（有効） | 検証担当者が確認済み |
+| 4 | 街灯の光 | 光がランプの奥でちらつく | 光の描画の呼び出し元 | `flare_fix`（有効） | v3.1 は検証担当者が確認済み。V0.7 の変更（v4.4）はゲーム内で未実行 |
 | 5 | 球面マップの金属 | PS2 版よりくすむ | `CYyModelDt::SkinAndDrawV2` | `sphere_shine`（有効） | ゲーム内では未検証 |
 | 6 | オーラのキャプチャサイズ | オーラがギザギザ | `Post_CreateScreenEffectTargets`、`Post_CaptureSceneToTarget` | `aura_size`（1024） | 2048 で確認済み |
 | 7 | オーラの広がりと最後の層 | 大画面で層が詰まり、縁が硬い | `Post_DrawRotatingGhostLayers` | `aura_soft`（有効） | 確認済みのオーラ検証で使用。単独では未検証 |
@@ -244,14 +244,24 @@ static uint32_t __thiscall sf_namecalc(void *self, undefined4 *pos, int out, flo
 
 **症状。** 街灯やランタンの光が、ランプ本体の面の奥でちらつきます。
 
-**原因と修正。** Dellingr の dagnyfix（flarefix v3.1）に由来する修正でございます。dagnyfix は、光の描画を次の
+**原因と修正。** Dellingr の dagnyfix（flarefix v3.1、のちに flare fix v4.4）に由来する修正でございます。dagnyfix は、光の描画を次の
 特徴で特定いたしました。
 - 36 バイトストライドの頂点バッファからの `DrawPrimitive`（頂点数 8 以下）
 - 深度テスト有効、深度書き込み無効
 - ブレンド `SRCALPHA / ONE`
 
-dagnyfix は各頂点のローカル z を −0.4 移動いたしますが、gobbiefix は同じ移動をその描画に限って WORLD で行います
-（ロックもコピーも不要）。`WORLD' = T(0, 0, −0.4) × WORLD`。
+V0.7 では、dagnyfix の flare fix v4.4 と同じ方法で光を動かしております（以前の v3.1 の移動
+`WORLD' = T(0, 0, −0.4) × WORLD` は光自身の z 軸に沿って 0.4 動かすもので、WORLD がその軸を回転・拡大している箇所では
+光が画面上の位置からずれ、基本エリア以降のゾーンで光の位置がおかしいという報告につながりました）。
+- 基準点：描画の頂点の重心（読み取り専用ロックで取得し、バッファ・先頭頂点・頂点数ごとにキャッシュ、Reset で破棄）を
+  WORLD で変換したもの。`d` はその原点からの距離
+- `d < 0.8` または有限でない場合は何もいたしません。それ以外は、その描画に限り WORLD の 0〜3 行・0〜2 列に
+  `s = (d − 0.4) / d` を掛けます
+
+これは光を原点を中心に拡大縮小するものでございます。光の描画では VIEW が単位行列（WORLD がカメラを含む）のため原点が
+視点となり、視点を中心とした拡大縮小は画面上の位置と大きさを保ったまま光を 0.4 手前に寄せます。gobbiefix は VIEW が
+単位行列のときに限って光を動かします。ゲーム内で取得したフレーム（光 62 個）では、v3.1 の移動はすべての光を画面上で
+ずらしておりました（1512×949 で中央値 21 ピクセル）が、こちらはひとつもずらしません。
 
 ```cpp
 static bool flare_match(D3DPRIMITIVETYPE t, UINT prims) {
@@ -260,6 +270,20 @@ static bool flare_match(D3DPRIMITIVETYPE t, UINT prims) {
   static const D3DRENDERSTATETYPE k[5] = {D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_SRCBLEND, D3DRS_DESTBLEND};
   static const DWORD want[5] = {D3DZB_TRUE, FALSE, TRUE, D3DBLEND_SRCALPHA, D3DBLEND_ONE};
   for (int i = 0; i < 5; i++) if (g_rs[k[i]] != want[i]) return false;   // (abridged: "state known" checks removed)
+  return true;
+}
+```
+
+```cpp
+// WORLD for the glow's draw (row-major, D3D's row vectors); c: the vertices' centroid
+static inline bool sf_flare_scale(const float w[16], const float c[3], float out[16]) {
+  float a[3];
+  for (int k = 0; k < 3; k++) a[k] = c[0] * w[k] + c[1] * w[4 + k] + c[2] * w[8 + k] + w[12 + k];
+  for (int k = 0; k < 3; k++) if (!isfinite(c[k]) || !isfinite(a[k])) return false;
+  float d = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+  if (!isfinite(d) || d < 0.8f) return false;
+  float s = (d - 0.4f) / d;
+  for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) out[4 * r + k] = k < 3 ? w[4 * r + k] * s : w[4 * r + k];
   return true;
 }
 ```
